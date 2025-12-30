@@ -130,6 +130,8 @@ def _generate_single_html(*, args: RunArgs, trends, metrics) -> str:
         clusters=args.clusters,
     )
     facts = _attach_facts_extras(args=args, facts=facts, trends=trends)
+    # Single report: show optional “extras” sections (suggestions/related/region) if available.
+    facts["include_extras_sections"] = True
 
     if args.no_ai or not args.ai_model:
         commentary = deterministic_commentary_sections(facts=facts, note="AI disabled via --no-ai.")
@@ -138,7 +140,7 @@ def _generate_single_html(*, args: RunArgs, trends, metrics) -> str:
         commentary = generate_commentary_sections(model=args.ai_model, facts=facts)
         ai_label = args.ai_model
 
-    sections = _build_sections(args=args, metrics=metrics, commentary=commentary, trends=trends)
+    sections = _build_sections(args=args, metrics=metrics, commentary=commentary, trends=trends, include_extras_sections=True)
     return _render_html(
         title=f"Google Trends Report — {args.main}",
         heading=_report_heading(args),
@@ -165,6 +167,8 @@ def _generate_bundled_html(*, args: RunArgs, trends, metrics) -> str:
     plotly_inline_state = {"used": False}
 
     for rt in report_types:
+        # Bundle UX: show suggestions/related/region once (on Competitive tab) to avoid repeating the same “extras” 3 times.
+        include_extras_sections = rt == "competitive"
         args_rt = _with_report_type(args, rt)
         facts = build_facts_packet(
             report_type=args_rt.report_type,
@@ -176,6 +180,7 @@ def _generate_bundled_html(*, args: RunArgs, trends, metrics) -> str:
             clusters=args_rt.clusters,
         )
         facts = _attach_facts_extras(args=args_rt, facts=facts, trends=trends)
+        facts["include_extras_sections"] = bool(include_extras_sections)
 
         if args_rt.no_ai or not args_rt.ai_model:
             commentary = deterministic_commentary_sections(facts=facts, note="AI disabled via --no-ai.")
@@ -190,6 +195,7 @@ def _generate_bundled_html(*, args: RunArgs, trends, metrics) -> str:
             commentary=commentary,
             trends=trends,
             plotly_inline_state=plotly_inline_state,
+            include_extras_sections=include_extras_sections,
         )
         tabs.append({"id": rt, "title": _title_for_report_type(rt), "sections": sections})
 
@@ -250,7 +256,15 @@ def _render_html(
     )
 
 
-def _build_sections(*, args: RunArgs, metrics, commentary, trends, plotly_inline_state: dict | None = None) -> list[dict]:
+def _build_sections(
+    *,
+    args: RunArgs,
+    metrics,
+    commentary,
+    trends,
+    plotly_inline_state: dict | None = None,
+    include_extras_sections: bool = True,
+) -> list[dict]:
     # Create a lookup for commentary by id
     comm_by_id = {c.section_id: c for c in commentary}
 
@@ -322,6 +336,13 @@ def _build_sections(*, args: RunArgs, metrics, commentary, trends, plotly_inline
                 + _region_html(trends.interest_by_region, main_term=args.main)
             ),
         )
+
+    def add_extras() -> None:
+        if not include_extras_sections:
+            return
+        add_suggestions_if_any()
+        add_related_if_enabled()
+        add_region_if_any()
 
     weekly = metrics.weekly.reset_index(names="date")
     terms = [c for c in metrics.weekly.columns]
@@ -421,9 +442,7 @@ def _build_sections(*, args: RunArgs, metrics, commentary, trends, plotly_inline
             ),
         )
 
-        add_suggestions_if_any()
-        add_related_if_enabled()
-        add_region_if_any()
+        add_extras()
 
         return sections
 
@@ -485,9 +504,7 @@ def _build_sections(*, args: RunArgs, metrics, commentary, trends, plotly_inline
                 ),
             )
 
-        add_suggestions_if_any()
-        add_related_if_enabled()
-        add_region_if_any()
+        add_extras()
         return sections
 
     # --- Template: Category / clusters ---
@@ -560,9 +577,7 @@ def _build_sections(*, args: RunArgs, metrics, commentary, trends, plotly_inline
                 ),
             )
 
-        add_suggestions_if_any()
-        add_related_if_enabled()
-        add_region_if_any()
+        add_extras()
         return sections
 
     return sections

@@ -92,6 +92,14 @@ def _get_api_key() -> str:
 
 def _sections_spec(facts: dict) -> list[dict[str, Any]]:
     report_type = (facts or {}).get("report_type") or "competitive"
+    include_extras = bool((facts or {}).get("include_extras_sections", True))
+
+    extras = [
+        {"id": "suggestions", "title": "Term Disambiguation (Suggestions)", "facts": _facts_suggestions(facts)},
+        {"id": "related", "title": "Related Queries & Topics (Main Term)", "facts": _facts_related(facts)},
+        {"id": "region", "title": "Interest by Region", "facts": _facts_region(facts)},
+    ]
+    extras = extras if include_extras else []
 
     if report_type == "brand-health":
         return [
@@ -99,9 +107,7 @@ def _sections_spec(facts: dict) -> list[dict[str, Any]]:
             {"id": "brand_health", "title": "Brand Health Overview", "facts": _facts_brand_health(facts)},
             {"id": "drawdowns", "title": "Drawdowns", "facts": _facts_drawdowns(facts)},
             {"id": "seasonality", "title": "Seasonality", "facts": _facts_seasonality(facts)},
-            {"id": "suggestions", "title": "Term Disambiguation (Suggestions)", "facts": _facts_suggestions(facts)},
-            {"id": "related", "title": "Related Queries & Topics (Main Term)", "facts": _facts_related(facts)},
-            {"id": "region", "title": "Interest by Region", "facts": _facts_region(facts)},
+            *extras,
         ]
 
     if report_type == "category":
@@ -111,9 +117,7 @@ def _sections_spec(facts: dict) -> list[dict[str, Any]]:
             {"id": "cluster_trends", "title": "Cluster Trends (Weekly)", "facts": _facts_category_trends(facts)},
             {"id": "cluster_share", "title": "Cluster Share (Proxy)", "facts": _facts_category_share(facts)},
             {"id": "cluster_yearly", "title": "Cluster Year-by-Year", "facts": _facts_category_yearly(facts)},
-            {"id": "suggestions", "title": "Term Disambiguation (Suggestions)", "facts": _facts_suggestions(facts)},
-            {"id": "related", "title": "Related Queries & Topics (Main Term)", "facts": _facts_related(facts)},
-            {"id": "region", "title": "Interest by Region", "facts": _facts_region(facts)},
+            *extras,
         ]
 
     # competitive (default)
@@ -124,9 +128,7 @@ def _sections_spec(facts: dict) -> list[dict[str, Any]]:
         {"id": "seasonality", "title": "Seasonality", "facts": _facts_seasonality(facts)},
         {"id": "share", "title": "Share of Search (Proxy)", "facts": _facts_share(facts)},
         {"id": "similarity", "title": "Similarity", "facts": _facts_similarity(facts)},
-        {"id": "suggestions", "title": "Term Disambiguation (Suggestions)", "facts": _facts_suggestions(facts)},
-        {"id": "related", "title": "Related Queries & Topics (Main Term)", "facts": _facts_related(facts)},
-        {"id": "region", "title": "Interest by Region", "facts": _facts_region(facts)},
+        *extras,
     ]
 
 
