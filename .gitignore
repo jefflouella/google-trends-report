@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# outputs
+reports/
+.cache/
+
+# local data exports
+multiTimeline.csv
+
+# local env files
+.env
+.env.*
+
+
