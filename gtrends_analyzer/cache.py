@@ -221,13 +221,13 @@ class DiskCache:
             self._log(f"[gtrends] cache miss ({endpoint}) key={key}")
         value = compute_fn() or {}
         ed.mkdir(parents=True, exist_ok=True)
-        manifest = self._write_df_dict_manifest(ed, value)
+        manifest = self._write_df_dict_manifest(ed=ed, root_key=key, value=value)
         manifest_path.write_text(_stable_json(manifest), encoding="utf-8")
         self._write_meta(key=key, ttl_seconds=ttl_seconds, meta=meta)
         self._log(f"[gtrends] cache write ({endpoint}) key={key}")
         return value
 
-    def _write_df_dict_manifest(self, ed: Path, value: dict[str, Any]) -> dict[str, Any]:
+    def _write_df_dict_manifest(self, *, ed: Path, root_key: str, value: dict[str, Any]) -> dict[str, Any]:
         files: list[dict[str, Any]] = []
         json_payload: dict[str, Any] = {}
 
@@ -244,7 +244,8 @@ class DiskCache:
                 json_payload[top_k] = {}
                 for sub_k, sub_v in top_v.items():
                     if isinstance(sub_v, pd.DataFrame):
-                        rel = f"dfs/{cache_key(key, top_k, sub_k)}.csv.gz"
+                        # Include the parent cache key to avoid collisions across endpoints/queries.
+                        rel = f"dfs/{cache_key('df_dict', root_key, top_k, sub_k)}.csv.gz"
                         _store_df(sub_v, rel)
                         json_payload[top_k][sub_k] = {"__df__": rel}
                     else:
