@@ -140,6 +140,7 @@ Useful flags:
 - `--refresh` (force fresh fetch)
 - `--min-request-interval-seconds 30` (go slower)
 - `--max-retries 4`
+- `--verbose` (print cache hit/miss + throttle/backoff timing)
 
 Best practice:
 - generate once, then rerun from cache for iterations

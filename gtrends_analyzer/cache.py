@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -51,11 +51,22 @@ class DiskCache:
         payload.(json|csv.gz) or manifest.json for composite payloads
     """
 
-    def __init__(self, *, cache_dir: str | Path, namespace: str = "default") -> None:
+    def __init__(
+        self,
+        *,
+        cache_dir: str | Path,
+        namespace: str = "default",
+        log_fn: Callable[[str], None] | None = None,
+    ) -> None:
         self.root = Path(cache_dir).expanduser().resolve()
         self.ns = namespace
         self.base = self.root / namespace
         self.base.mkdir(parents=True, exist_ok=True)
+        self._log_fn = log_fn
+
+    def _log(self, msg: str) -> None:
+        if self._log_fn is not None:
+            self._log_fn(msg)
 
     def _entry_dir(self, key: str) -> Path:
         return self.base / key
@@ -121,12 +132,20 @@ class DiskCache:
         payload_path = ed / "payload.json"
 
         if self._is_hit(key, refresh=refresh) and payload_path.exists():
+            endpoint = (meta or {}).get("endpoint") or "json"
+            self._log(f"[gtrends] cache hit ({endpoint}) key={key}")
             return json.loads(payload_path.read_text(encoding="utf-8"))
 
+        endpoint = (meta or {}).get("endpoint") or "json"
+        if refresh:
+            self._log(f"[gtrends] cache bypass refresh ({endpoint}) key={key}")
+        else:
+            self._log(f"[gtrends] cache miss ({endpoint}) key={key}")
         value = compute_fn()
         ed.mkdir(parents=True, exist_ok=True)
         payload_path.write_text(_stable_json(value), encoding="utf-8")
         self._write_meta(key=key, ttl_seconds=ttl_seconds, meta=meta)
+        self._log(f"[gtrends] cache write ({endpoint}) key={key}")
         return value
 
     def get_or_compute_df(
@@ -142,6 +161,8 @@ class DiskCache:
         payload_path = ed / "payload.csv.gz"
 
         if self._is_hit(key, refresh=refresh) and payload_path.exists():
+            endpoint = (meta or {}).get("endpoint") or "df"
+            self._log(f"[gtrends] cache hit ({endpoint}) key={key}")
             entry = self._read_meta(key)
             with gzip.open(payload_path, "rt", encoding="utf-8") as f:
                 df = pd.read_csv(f, index_col=0)
@@ -154,6 +175,11 @@ class DiskCache:
                 pass
             return df
 
+        endpoint = (meta or {}).get("endpoint") or "df"
+        if refresh:
+            self._log(f"[gtrends] cache bypass refresh ({endpoint}) key={key}")
+        else:
+            self._log(f"[gtrends] cache miss ({endpoint}) key={key}")
         df = compute_fn()
         ed.mkdir(parents=True, exist_ok=True)
         with gzip.open(payload_path, "wt", encoding="utf-8") as f:
@@ -162,6 +188,7 @@ class DiskCache:
         if isinstance(df.index, pd.DatetimeIndex):
             m["index"] = "datetime"
         self._write_meta(key=key, ttl_seconds=ttl_seconds, meta=m)
+        self._log(f"[gtrends] cache write ({endpoint}) key={key}")
         return df
 
     def get_or_compute_df_dict(
@@ -182,14 +209,22 @@ class DiskCache:
         manifest_path = ed / "manifest.json"
 
         if self._is_hit(key, refresh=refresh) and manifest_path.exists():
+            endpoint = (meta or {}).get("endpoint") or "df_dict"
+            self._log(f"[gtrends] cache hit ({endpoint}) key={key}")
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             return self._load_df_dict_from_manifest(ed, manifest)
 
+        endpoint = (meta or {}).get("endpoint") or "df_dict"
+        if refresh:
+            self._log(f"[gtrends] cache bypass refresh ({endpoint}) key={key}")
+        else:
+            self._log(f"[gtrends] cache miss ({endpoint}) key={key}")
         value = compute_fn() or {}
         ed.mkdir(parents=True, exist_ok=True)
         manifest = self._write_df_dict_manifest(ed, value)
         manifest_path.write_text(_stable_json(manifest), encoding="utf-8")
         self._write_meta(key=key, ttl_seconds=ttl_seconds, meta=meta)
+        self._log(f"[gtrends] cache write ({endpoint}) key={key}")
         return value
 
     def _write_df_dict_manifest(self, ed: Path, value: dict[str, Any]) -> dict[str, Any]:
@@ -244,10 +279,21 @@ class DiskCache:
 
 
 class RateLimiter:
-    def __init__(self, *, min_interval_seconds: float = 15.0, jitter_ratio: float = 0.2) -> None:
+    def __init__(
+        self,
+        *,
+        min_interval_seconds: float = 15.0,
+        jitter_ratio: float = 0.2,
+        log_fn: Callable[[str], None] | None = None,
+    ) -> None:
         self.min_interval_seconds = float(min_interval_seconds)
         self.jitter_ratio = float(jitter_ratio)
         self._last = 0.0
+        self._log_fn = log_fn
+
+    def _log(self, msg: str) -> None:
+        if self._log_fn is not None:
+            self._log_fn(msg)
 
     def wait(self, *, sleep_fn: Callable[[float], None] = time.sleep, now_fn: Callable[[], float] = time.monotonic) -> None:
         if self.min_interval_seconds <= 0:
@@ -268,6 +314,7 @@ class RateLimiter:
 
         remaining = target - elapsed
         if remaining > 0:
+            self._log(f"[gtrends] throttle sleep {remaining:.1f}s")
             sleep_fn(remaining)
         self._last = float(now_fn())
 
@@ -280,6 +327,7 @@ def backoff_retry(
     base_seconds: float = 30.0,
     max_seconds: float = 300.0,
     sleep_fn: Callable[[float], None] = time.sleep,
+    log_fn: Callable[[str], None] | None = None,
 ) -> Any:
     """
     Exponential backoff retry wrapper.
@@ -293,6 +341,8 @@ def backoff_retry(
             if attempt >= max_attempts or not should_retry(e):
                 raise
             wait = min(max_seconds, base_seconds * (2 ** (attempt - 1)))
+            if log_fn is not None:
+                log_fn(f"[gtrends] backoff retry attempt {attempt}/{max_attempts - 1}, sleeping {wait:.0f}s ({type(e).__name__})")
             sleep_fn(wait)
 
 

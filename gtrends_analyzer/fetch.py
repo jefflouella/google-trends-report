@@ -4,20 +4,13 @@ from dataclasses import dataclass
 
 import pandas as pd
 from pathlib import Path
+from typing import Callable
 from pytrends.exceptions import ResponseError
 from pytrends.request import TrendReq
 from requests import exceptions as requests_exceptions  # type: ignore
 from urllib3 import exceptions as urllib3_exceptions  # type: ignore
 
 from .cache import DiskCache, RateLimiter, backoff_retry, cache_key
-
-
-@dataclass(frozen=True)
-class TrendsQuery:
-    terms: list[str]
-    geo: str
-    timeframe: str
-    gprop: str
 
 
 @dataclass(frozen=True)
@@ -44,10 +37,16 @@ def fetch_trends(
     refresh: bool = False,
     min_request_interval_seconds: float = 15.0,
     max_retries: int = 4,
+    verbose: bool = False,
 ) -> TrendsResult:
     terms = _normalize_terms(main_term=main_term, terms=terms)
-    cache = DiskCache(cache_dir=cache_dir or (Path(".cache") / "gtrends_analyzer"), namespace="pytrends")
-    limiter = RateLimiter(min_interval_seconds=min_request_interval_seconds)
+    log_fn = print if verbose else None
+    cache = DiskCache(
+        cache_dir=cache_dir or (Path(".cache") / "gtrends_analyzer"),
+        namespace="pytrends",
+        log_fn=log_fn,
+    )
+    limiter = RateLimiter(min_interval_seconds=min_request_interval_seconds, log_fn=log_fn)
     pytrends = TrendReq(hl="en-US", tz=300, retries=2, backoff_factor=0.2, timeout=(10, 30))
 
     batches = _build_batches(main_term=main_term, terms=terms, max_terms_per_query=5)
@@ -63,6 +62,7 @@ def fetch_trends(
         refresh=refresh,
         limiter=limiter,
         max_retries=max_retries,
+        log_fn=log_fn,
     )
 
     combined = base_df.copy()
@@ -80,6 +80,7 @@ def fetch_trends(
                 refresh=refresh,
                 limiter=limiter,
                 max_retries=max_retries,
+                log_fn=log_fn,
             )
             scale = _compute_anchor_scale_factor(
                 base_anchor=base_anchor,
@@ -116,6 +117,7 @@ def fetch_trends(
             refresh=refresh,
             limiter=limiter,
             max_retries=max_retries,
+            log_fn=log_fn,
         )
     if include_related:
         related_queries, related_topics = _fetch_related(
@@ -129,6 +131,7 @@ def fetch_trends(
             refresh=refresh,
             limiter=limiter,
             max_retries=max_retries,
+            log_fn=log_fn,
         )
     if include_suggestions:
         suggestions = _fetch_suggestions(
@@ -139,6 +142,7 @@ def fetch_trends(
             refresh=refresh,
             limiter=limiter,
             max_retries=max_retries,
+            log_fn=log_fn,
         )
 
     return TrendsResult(
@@ -197,6 +201,7 @@ def _fetch_interest_over_time(
     refresh: bool,
     limiter: RateLimiter,
     max_retries: int,
+    log_fn: Callable[[str], None] | None,
 ) -> pd.DataFrame:
     k = cache_key("interest_over_time", {"terms": terms, "geo": geo, "timeframe": timeframe, "gprop": gprop})
 
@@ -208,7 +213,12 @@ def _fetch_interest_over_time(
             return pytrends.interest_over_time()
 
         try:
-            df = backoff_retry(fn=call, should_retry=_is_rate_limit_exception, max_attempts=max_retries)
+            df = backoff_retry(
+                fn=call,
+                should_retry=_is_rate_limit_exception,
+                max_attempts=max_retries,
+                log_fn=log_fn,
+            )
         except ResponseError as e:
             raise RuntimeError(
                 "Google Trends request failed (rate limit or backend change). Try again later or reduce scope."
@@ -261,6 +271,7 @@ def _fetch_interest_by_region(
     refresh: bool,
     limiter: RateLimiter,
     max_retries: int,
+    log_fn: Callable[[str], None] | None,
 ) -> pd.DataFrame:
     resolution = "COUNTRY" if geo == "" else "REGION"
     k = cache_key("interest_by_region", {"terms": terms, "geo": geo, "timeframe": timeframe, "gprop": gprop, "resolution": resolution})
@@ -273,7 +284,12 @@ def _fetch_interest_by_region(
             return pytrends.interest_by_region(resolution=resolution, inc_low_vol=True, inc_geo_code=False)
 
         try:
-            df = backoff_retry(fn=call, should_retry=_is_rate_limit_exception, max_attempts=max_retries)
+            df = backoff_retry(
+                fn=call,
+                should_retry=_is_rate_limit_exception,
+                max_attempts=max_retries,
+                log_fn=log_fn,
+            )
         except Exception:
             df = pd.DataFrame()
         return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
@@ -302,6 +318,7 @@ def _fetch_related(
     refresh: bool,
     limiter: RateLimiter,
     max_retries: int,
+    log_fn: Callable[[str], None] | None,
 ) -> tuple[dict, dict]:
     kq = cache_key("related_queries", {"terms": terms, "geo": geo, "timeframe": timeframe, "gprop": gprop})
     kt = cache_key("related_topics", {"terms": terms, "geo": geo, "timeframe": timeframe, "gprop": gprop})
@@ -314,7 +331,12 @@ def _fetch_related(
             return pytrends.related_queries() or {}
 
         try:
-            return backoff_retry(fn=call, should_retry=_is_rate_limit_exception, max_attempts=max_retries)
+            return backoff_retry(
+                fn=call,
+                should_retry=_is_rate_limit_exception,
+                max_attempts=max_retries,
+                log_fn=log_fn,
+            )
         except Exception:
             return {}
 
@@ -326,7 +348,12 @@ def _fetch_related(
             return pytrends.related_topics() or {}
 
         try:
-            return backoff_retry(fn=call, should_retry=_is_rate_limit_exception, max_attempts=max_retries)
+            return backoff_retry(
+                fn=call,
+                should_retry=_is_rate_limit_exception,
+                max_attempts=max_retries,
+                log_fn=log_fn,
+            )
         except Exception:
             return {}
 
@@ -356,6 +383,7 @@ def _fetch_suggestions(
     refresh: bool,
     limiter: RateLimiter,
     max_retries: int,
+    log_fn: Callable[[str], None] | None,
 ) -> dict[str, list[dict]]:
     """
     Fetch Google Trends suggestions (disambiguation/entity hints) for each term.
@@ -372,7 +400,12 @@ def _fetch_suggestions(
                 return pytrends.suggestions(t) or []
 
             try:
-                return backoff_retry(fn=call, should_retry=_is_rate_limit_exception, max_attempts=max_retries)
+                return backoff_retry(
+                    fn=call,
+                    should_retry=_is_rate_limit_exception,
+                    max_attempts=max_retries,
+                    log_fn=log_fn,
+                )
             except Exception:
                 return []
 

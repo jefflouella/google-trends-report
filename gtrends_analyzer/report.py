@@ -60,6 +60,7 @@ def generate_report(args: RunArgs) -> Path:
             refresh=bool(args.refresh),
             min_request_interval_seconds=float(args.min_request_interval_seconds),
             max_retries=int(args.max_retries),
+            verbose=bool(getattr(args, "verbose", False)),
         )
 
     metrics = compute_metrics(trends.interest_over_time)
@@ -109,6 +110,7 @@ def _with_report_type(args: RunArgs, report_type: str) -> RunArgs:
         max_retries=args.max_retries,
         include_js=args.include_js,
         offline=args.offline,
+        verbose=bool(getattr(args, "verbose", False)),
         ai_model=args.ai_model,
         no_ai=args.no_ai,
         out=args.out,

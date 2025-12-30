@@ -23,6 +23,7 @@ class RunArgs:
     max_retries: int
     include_js: str
     offline: bool
+    verbose: bool
     ai_model: str | None
     no_ai: bool
     out: Path | None

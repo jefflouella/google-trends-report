@@ -90,6 +90,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Max attempts per pytrends endpoint when rate-limited (default: 4).",
     )
+    run.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print cache hit/miss and rate-limit/backoff timing to help diagnose fetching behavior.",
+    )
 
     run.add_argument(
         "--include-js",
@@ -149,6 +154,7 @@ def _parse_run_args(ns: argparse.Namespace) -> RunArgs:
         max_retries=int(ns.max_retries),
         include_js=include_js,
         offline=bool(ns.offline),
+        verbose=bool(getattr(ns, "verbose", False)),
         ai_model=ai_model,
         no_ai=bool(ns.no_ai),
         out=out,
